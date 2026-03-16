@@ -1,7 +1,7 @@
 import cors from 'cors';
 import express, { type Request, type Response } from 'express';
 import multer from 'multer';
-import { promises as fs } from 'node:fs';
+import { promises as fs, existsSync } from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
@@ -16,9 +16,45 @@ const DATA_DIR = process.env.CATOFA_DATA_DIR || path.join(process.cwd(), 'runtim
 const DEFAULT_TICKETS_STORE = process.env.CATOFA_TICKETS || path.join(DATA_DIR, 'tickets.json');
 const DEFAULT_WALLET_DIR = process.env.CATOFA_WALLET || path.join(os.homedir(), '.lakeside');
 const DEFAULT_FAUCET_URL = process.env.CATOFA_FAUCET_URL || 'http://127.0.0.1:8080';
-const LAKESIDE_BIN = process.env.LAKESIDE_BIN || 'lakeside';
-const LAKESIDE_ARGS = process.env.LAKESIDE_ARGS?.split(' ').filter(Boolean) ?? [];
-const LAKESIDE_CWD = process.env.LAKESIDE_CWD || path.join(process.cwd(), '..', 'lakeside');
+const LAKESIDE_BINARY_NAME = process.platform === 'win32' ? 'lakeside.exe' : 'lakeside';
+
+const resolveLakesideCwd = () => {
+  if (process.env.LAKESIDE_CWD) {
+    return process.env.LAKESIDE_CWD;
+  }
+  const candidates = [
+    path.resolve(process.cwd(), '..', 'lakeside'),
+    path.resolve(process.cwd(), '..', '..'),
+    path.resolve(process.cwd(), '..'),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(path.join(candidate, 'Cargo.toml'))) {
+      return candidate;
+    }
+  }
+  return path.resolve(process.cwd(), '..', 'lakeside');
+};
+
+const LAKESIDE_CWD = resolveLakesideCwd();
+
+const detectLakesideBin = () => {
+  if (process.env.LAKESIDE_BIN) {
+    return process.env.LAKESIDE_BIN;
+  }
+  const release = path.join(LAKESIDE_CWD, 'target', 'release', LAKESIDE_BINARY_NAME);
+  if (existsSync(release)) {
+    return release;
+  }
+  const debug = path.join(LAKESIDE_CWD, 'target', 'debug', LAKESIDE_BINARY_NAME);
+  if (existsSync(debug)) {
+    return debug;
+  }
+  return 'cargo';
+};
+
+const LAKESIDE_BIN = detectLakesideBin();
+const userArgs = process.env.LAKESIDE_ARGS?.split(' ').filter(Boolean);
+const LAKESIDE_ARGS = userArgs ?? (LAKESIDE_BIN === 'cargo' ? ['run', '--quiet', '--'] : []);
 
 let faucetProcess: ReturnType<typeof spawn> | null = null;
 let faucetLogs: string[] = [];

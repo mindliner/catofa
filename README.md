@@ -8,6 +8,8 @@ A web interface for the Lakeside Cashu faucet workflow. Catofa wraps the `lakesi
 4. Testing attendee claims via the `/claim` endpoint (operator mode)
 5. **GetYourToken** – a user-facing page where attendees enter their ticket code and copy their Cashu tokens
 
+The name stands for **ca**-shu **to**-ken **fa**-ucet.
+
 ## Stack
 
 - **Frontend:** React + Vite + TypeScript
@@ -17,7 +19,8 @@ A web interface for the Lakeside Cashu faucet workflow. Catofa wraps the `lakesi
 ## Prerequisites
 
 - Node.js 20+
-- `lakeside` binary available on `$PATH` (or set `LAKESIDE_BIN`) and access to the Lakeside repo/build (`LAKESIDE_CWD` defaults to `../lakeside`).
+- Rust toolchain / Cargo (Catofa falls back to `cargo run --quiet --` if it can't find a pre-built `lakeside` binary).
+- `lakeside` binary available on `$PATH` (or set `LAKESIDE_BIN`) and access to the Lakeside repo/build (auto-detected when Catofa lives inside `lakeside/ui/catofa`).
 
 ## Development
 
@@ -48,9 +51,9 @@ The backend honors optional env vars:
 | `CATOFA_DATA_DIR` | Directory for runtime artifacts | `catofa/runtime` |
 | `CATOFA_TICKETS` | Path to the tickets JSON store | `${DATA_DIR}/tickets.json` |
 | `CATOFA_FAUCET_URL` | Default faucet base URL for the claim tester | `http://127.0.0.1:8080` |
-| `LAKESIDE_BIN` | Command to execute for Lakeside | `lakeside` |
+| `LAKESIDE_BIN` | Command to execute for Lakeside | auto detects `target/release|debug/lakeside`; falls back to `cargo` if missing |
 | `LAKESIDE_ARGS` | Extra args prefixed to every Lakeside call | *(empty)* |
-| `LAKESIDE_CWD` | Working directory for the Lakeside CLI | `../lakeside` |
+| `LAKESIDE_CWD` | Working directory for the Lakeside CLI | auto-detected by walking up to the repo root |
 
 ## UI Walkthrough
 

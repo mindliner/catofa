@@ -22,7 +22,7 @@ RUN npm run build
 ##############################################
 # Stage 2 – build the Lakeside Rust binary
 ##############################################
-FROM rust:1.85-bookworm AS lakeside-builder
+FROM rust:1.88-bookworm AS lakeside-builder
 ARG LAKESIDE_DIR
 WORKDIR /src/lakeside
 

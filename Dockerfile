@@ -15,11 +15,8 @@ COPY ${CATOFA_DIR}/package.json ./
 COPY ${CATOFA_DIR}/package-lock.json ./
 RUN npm ci
 
-# Copy the rest of the Catofa sources (excluding host build artifacts)
-COPY \
-  --exclude=${CATOFA_DIR}/node_modules \
-  --exclude=${CATOFA_DIR}/dist \
-  ${CATOFA_DIR}/ ./
+# Copy the rest of the Catofa sources
+COPY ${CATOFA_DIR}/ ./
 RUN npm run build
 
 ##############################################

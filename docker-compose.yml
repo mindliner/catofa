@@ -1,0 +1,26 @@
+services:
+  catofa:
+    build:
+      context: ..
+      dockerfile: catofa/Dockerfile
+      args:
+        CATOFA_DIR: catofa
+        LAKESIDE_DIR: lakeside
+    env_file:
+      - .env
+    ports:
+      - "${CATOFA_PORT:-4077}:4077"
+    volumes:
+      - catofa_runtime:/var/lib/catofa
+      - catofa_wallet:/home/node/.lakeside
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:4077/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  catofa_runtime:
+  catofa_wallet:

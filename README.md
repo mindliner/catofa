@@ -41,6 +41,37 @@ NODE_ENV=production npm run start
 
 When `NODE_ENV=production`, the Express server serves the static files from `dist/` and exposes the `/api` routes on the same port (default `4077`).
 
+## Docker / Compose deployment
+
+Catofa now ships with a multi-stage container image that bundles the Lakeside CLI. The Docker build expects the `lakeside` repo to live beside Catofa (e.g. `/path/to/workspace/{catofa,lakeside}`); adjust the build args if your layout differs.
+
+1. Copy the sample env file and tweak as needed:
+   ```bash
+   cp .env.example .env
+   # edit CATOFA_PORT, CATOFA_FAUCET_URL, etc.
+   ```
+2. Build and start the stack from inside the Catofa repo (Compose points its build context one directory up so it can see both `catofa/` and `lakeside/`):
+   ```bash
+   docker compose up --build -d
+   ```
+3. The API/UI listens on `http://localhost:${CATOFA_PORT}` (default `4077`). Runtime artifacts live in the `catofa_runtime` volume and the persistent wallet is stored in `catofa_wallet`.
+
+Use `docker compose logs -f catofa` to follow the Express + Lakeside output.
+
+### Compose configuration reference
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `CATOFA_PORT` | `4077` | Host port that proxies to the Express server. |
+| `CATOFA_DATA_DIR` | `/var/lib/catofa` | Where tickets, CSV uploads, and faucet metadata are stored inside the container. |
+| `CATOFA_TICKETS` | `${CATOFA_DATA_DIR}/tickets.json` | Override if you want to point at an existing datastore. |
+| `CATOFA_FAUCET_URL` | `http://127.0.0.1:8080` | Default faucet endpoint for the claim tester. |
+| `CATOFA_WALLET` | `/home/node/.lakeside` | Wallet directory; mapped to the `catofa_wallet` volume. |
+| `LAKESIDE_BIN` | `/usr/local/bin/lakeside` | Pre-baked binary inside the image. |
+| `LAKESIDE_CWD` | `/opt/lakeside` | Working directory for CLI invocations. |
+
+Both named volumes defined in `docker-compose.yml` are optional; you can swap them for host bind mounts if you want the files on the local filesystem instead of Docker-managed volumes.
+
 ## Configuration
 
 The backend honors optional env vars:

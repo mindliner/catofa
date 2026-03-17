@@ -26,6 +26,10 @@ FROM rust:1.88-bookworm AS lakeside-builder
 ARG LAKESIDE_DIR
 WORKDIR /src/lakeside
 
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends protobuf-compiler \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY ${LAKESIDE_DIR}/Cargo.toml ./
 COPY ${LAKESIDE_DIR}/Cargo.lock ./
 COPY ${LAKESIDE_DIR}/src ./src

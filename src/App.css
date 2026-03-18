@@ -419,3 +419,45 @@ footer {
     grid-column: 1 / -1;
   }
 }
+
+.control-room-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.control-room-header a {
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.global-error {
+  margin-top: 0;
+}
+
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 12, 27, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 10;
+}
+
+.auth-card {
+  background: #111727;
+  border: 1px solid rgba(146, 164, 199, 0.4);
+  border-radius: 16px;
+  padding: 2rem;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: 0 35px 70px rgba(5, 10, 22, 0.65);
+}
+
+.page-locked {
+  min-height: 100vh;
+}

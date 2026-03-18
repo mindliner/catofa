@@ -6,7 +6,7 @@ A web interface for the Lakeside Cashu faucet workflow. Catofa wraps the `lakesi
 2. Funding & inspecting the persistent wallet
 3. Launching/stopping `lakeside faucet serve` with preset options
 4. Testing attendee claims via the `/claim` endpoint (operator mode)
-5. **GetYourToken** – a user-facing page where attendees enter their ticket code and copy their Cashu tokens
+5. **Attendee portal (`/attendee`)** – a standalone page where guests enter their ticket code and copy their Cashu tokens without seeing the control room
 
 The name stands for **ca**-shu **to**-ken **fa**-ucet.
 
@@ -82,6 +82,7 @@ The backend honors optional env vars:
 | `CATOFA_DATA_DIR` | Directory for runtime artifacts | `catofa/runtime` |
 | `CATOFA_TICKETS` | Path to the tickets JSON store | `${DATA_DIR}/tickets.json` |
 | `CATOFA_FAUCET_URL` | Default faucet base URL for the claim tester | `http://127.0.0.1:8080` |
+| `CATOFA_CONTROL_ROOM_KEY` | Shared secret required for the operator control room + all `/api/*` routes (attendee portal remains public) | *(empty)* |
 | `LAKESIDE_BIN` | Command to execute for Lakeside | auto detects `target/release|debug/lakeside`; falls back to `cargo` if missing |
 | `LAKESIDE_ARGS` | Extra args prefixed to every Lakeside call | *(empty)* |
 | `LAKESIDE_CWD` | Working directory for the Lakeside CLI | auto-detected by walking up to the repo root |
@@ -92,7 +93,7 @@ The backend honors optional env vars:
 2. **Wallet:** fund with sats (live log shows the BOLT11 invoice + status), toggle Bolt12, and poll `lakeside wallet balance`.
 3. **Faucet:** configure mint/bind/payout mode, start or stop the faucet process, and inspect live logs.
 4. **Claim tester (operator view):** run sample `/claim` requests from the browser against any faucet URL.
-5. **GetYourToken (attendee view):** a lightweight page with a single ticket-code field. It reuses `/api/claim`, displays total sats + bundle count, and shows copy-to-clipboard buttons per token so guests can paste them into their Cashu wallet.
+5. **Attendee portal (`/attendee`):** a lightweight page with a single ticket-code field powered by the public `/attendee/claim` proxy. It displays total sats + bundle count and offers copy-to-clipboard buttons per token so guests can paste them into their Cashu wallet.
 
 ---
 

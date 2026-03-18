@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import './App.css'
+import { fetchJSON, HttpError, registerUnauthorizedHandler } from './lib/api'
+import { clearControlRoomKey, getStoredControlRoomKey, saveControlRoomKey } from './lib/auth'
 
 type Ticket = {
   display_code: string
@@ -29,22 +31,7 @@ type ConfigResponse = {
   faucetUrl: string
   lakesideBin: string
   lakesideCwd: string
-}
-
-type TokenBundle = {
-  amount: number
-  token: string
-  format?: string
-  created_at?: string
-}
-
-type ClaimData = {
-  status?: string
-  already_claimed?: boolean
-  total_amount?: number
-  display_code?: string
-  ticket_code?: string
-  tokens?: TokenBundle[]
+  controlRoomKeyRequired?: boolean
 }
 
 type WalletJobStatus = 'idle' | 'running' | 'done' | 'error'
@@ -68,22 +55,11 @@ const extractInvoice = (lines: string[]): string | null => {
   return null
 }
 
-async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    headers: init?.body instanceof FormData ? init.headers : { 'content-type': 'application/json', ...(init?.headers || {}) },
-    ...init,
-  })
-
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(text || response.statusText)
-  }
-
-  return response.json() as Promise<T>
-}
-
 function App() {
-  const [viewMode, setViewMode] = useState<'operator' | 'attendee'>('operator')
+  const [authState, setAuthState] = useState<'checking' | 'locked' | 'unlocked'>('checking')
+  const [keyInput, setKeyInput] = useState(getStoredControlRoomKey() || '')
+  const [keyError, setKeyError] = useState<string | null>(null)
+  const [keyBusy, setKeyBusy] = useState(false)
   const [config, setConfig] = useState<ConfigResponse | null>(null)
   const [tickets, setTickets] = useState<TicketStore | null>(null)
   const [ticketsMessage, setTicketsMessage] = useState<string | null>(null)
@@ -115,55 +91,110 @@ function App() {
   const [claimResult, setClaimResult] = useState<string>('')
   const [loadingTickets, setLoadingTickets] = useState(false)
   const [busySection, setBusySection] = useState<string | null>(null)
-  const [attendeeCode, setAttendeeCode] = useState('')
-  const [attendeeResult, setAttendeeResult] = useState<ClaimData | null>(null)
-  const [attendeeError, setAttendeeError] = useState<string | null>(null)
-  const [attendeeCopyMessage, setAttendeeCopyMessage] = useState<string | null>(null)
-  const [attendeeBusy, setAttendeeBusy] = useState(false)
+  const [globalError, setGlobalError] = useState<string | null>(null)
 
-  const loadConfig = async () => {
-    try {
-      const data = await fetchJSON<ConfigResponse>('/api/config')
-      setConfig(data)
-      setClaimUrl(data.faucetUrl)
-    } catch (error) {
-      console.error(error)
-    }
-  }
+  const resetControlRoomState = useCallback(() => {
+    setConfig(null)
+    setTickets(null)
+    setTicketsMessage(null)
+    setWalletMessage(null)
+    setBalanceOutput('')
+    setWalletJobId(null)
+    setWalletJobLogs([])
+    setWalletJobStatus('idle')
+    setWalletInvoice(null)
+    setFaucetStatus(null)
+    setFaucetMessage(null)
+    setClaimResult('')
+    setBusySection(null)
+  }, [])
 
-  const loadTickets = async () => {
+  useEffect(() => {
+    const unsubscribe = registerUnauthorizedHandler((error) => {
+      resetControlRoomState()
+      setAuthState('locked')
+      setKeyError(error.message || 'Control room key required')
+    })
+    return unsubscribe
+  }, [resetControlRoomState])
+
+  const loadConfig = useCallback(async () => {
+    const data = await fetchJSON<ConfigResponse>('/api/config')
+    setConfig(data)
+    setClaimUrl(data.faucetUrl)
+    return data
+  }, [])
+
+  const loadTickets = useCallback(async () => {
     setLoadingTickets(true)
     setTicketsMessage(null)
     try {
       const data = await fetchJSON<TicketStore>('/api/tickets')
       setTickets(data)
+      return data
     } catch (error) {
       setTickets(null)
       setTicketsMessage((error as Error).message)
+      if (error instanceof HttpError && error.status === 401) {
+        throw error
+      }
+      return null
     } finally {
       setLoadingTickets(false)
     }
-  }
+  }, [])
 
-  const loadFaucetStatus = async () => {
+  const loadFaucetStatus = useCallback(async () => {
     try {
       const status = await fetchJSON<FaucetStatus>('/api/faucet/status')
       setFaucetStatus(status)
+      return status
     } catch (error) {
       setFaucetStatus(null)
       setFaucetMessage((error as Error).message)
+      if (error instanceof HttpError && error.status === 401) {
+        throw error
+      }
+      return null
     }
-  }
+  }, [])
 
   useEffect(() => {
-    loadConfig()
-    loadTickets()
-    loadFaucetStatus()
+    let canceled = false
+    const bootstrap = async () => {
+      try {
+        await loadConfig()
+        if (!canceled) {
+          setAuthState('unlocked')
+        }
+        await Promise.all([loadTickets(), loadFaucetStatus()])
+        setGlobalError(null)
+      } catch (error) {
+        if (error instanceof HttpError && error.status === 401) {
+          if (!canceled) {
+            setAuthState('locked')
+            setKeyError('Enter the control room key to continue.')
+          }
+          return
+        }
+        setGlobalError((error as Error).message)
+      }
+    }
+    bootstrap()
+    return () => {
+      canceled = true
+    }
+  }, [loadConfig, loadTickets, loadFaucetStatus])
+
+  useEffect(() => {
+    if (authState !== 'unlocked') {
+      return undefined
+    }
     const poll = setInterval(() => {
-      loadFaucetStatus()
+      loadFaucetStatus().catch(() => undefined)
     }, 5000)
     return () => clearInterval(poll)
-  }, [])
+  }, [authState, loadFaucetStatus])
 
   useEffect(() => {
     if (!walletJobId) {
@@ -267,15 +298,10 @@ function App() {
         formData.append('metadataColumn', metadataColumn)
       }
 
-      const response = await fetch('/api/tickets/import/upload', {
+      await fetchJSON('/api/tickets/import/upload', {
         method: 'POST',
         body: formData,
       })
-
-      if (!response.ok) {
-        const text = await response.text()
-        throw new Error(text || 'Upload failed')
-      }
 
       setTicketsMessage('CSV imported')
       setCsvFile(null)
@@ -394,50 +420,45 @@ function App() {
     }
   }
 
-  const handleAttendeeClaim = async (event: FormEvent) => {
+  const attendees = useMemo(() => tickets?.tickets || [], [tickets])
+  const claimedCount = attendees.filter((ticket) => ticket.status === 'claimed').length
+
+  const handleUnlock = async (event: FormEvent) => {
     event.preventDefault()
-    if (!attendeeCode.trim()) {
-      setAttendeeError('Enter your ticket code')
+    if (!keyInput.trim()) {
+      setKeyError('Enter the control room key')
       return
     }
 
-    setAttendeeBusy(true)
-    setAttendeeError(null)
-    setAttendeeResult(null)
-    setAttendeeCopyMessage(null)
+    setKeyBusy(true)
+    setKeyError(null)
+    saveControlRoomKey(keyInput.trim())
 
     try {
-      const response = await fetchJSON<{ data: ClaimData }>('/api/claim', {
-        method: 'POST',
-        body: JSON.stringify({
-          ticketCode: attendeeCode.trim(),
-          faucetUrl: config?.faucetUrl || claimUrl,
-        }),
-      })
-      setAttendeeResult(response.data)
+      await loadConfig()
+      await Promise.all([loadTickets(), loadFaucetStatus()])
+      setAuthState('unlocked')
+      setGlobalError(null)
     } catch (error) {
-      setAttendeeError((error as Error).message)
+      if (error instanceof HttpError && error.status === 401) {
+        setKeyError('Incorrect key')
+      } else {
+        setKeyError((error as Error).message)
+      }
+      clearControlRoomKey()
     } finally {
-      setAttendeeBusy(false)
+      setKeyBusy(false)
     }
   }
 
-  const handleCopyToken = async (token: string) => {
-    try {
-      await navigator.clipboard.writeText(token)
-      setAttendeeCopyMessage('Token copied to clipboard')
-      setTimeout(() => setAttendeeCopyMessage(null), 1800)
-    } catch (error) {
-      setAttendeeCopyMessage((error as Error).message)
-    }
+  const handleLockControlRoom = () => {
+    clearControlRoomKey()
+    resetControlRoomState()
+    setAuthState('locked')
   }
-
-  const attendees = useMemo(() => tickets?.tickets || [], [tickets])
-  const claimedCount = attendees.filter((ticket) => ticket.status === 'claimed').length
-  const attendeeTokens = (attendeeResult?.tokens as TokenBundle[] | undefined) || []
 
   return (
-    <div className="page">
+    <div className={`page ${authState !== 'unlocked' ? 'page-locked' : ''}`}>
       <header>
         <div>
           <h1>catofa</h1>
@@ -449,22 +470,20 @@ function App() {
         </div>
       </header>
 
-      <nav className="view-toggle">
-        <button
-          className={viewMode === 'operator' ? 'active' : ''}
-          onClick={() => setViewMode('operator')}
-        >
-          Control room
-        </button>
-        <button
-          className={viewMode === 'attendee' ? 'active' : ''}
-          onClick={() => setViewMode('attendee')}
-        >
-          Get your token
-        </button>
-      </nav>
+      <div className="control-room-header">
+        <a href="/attendee" target="_blank" rel="noreferrer">
+          Open attendee portal
+        </a>
+        {authState === 'unlocked' && (
+          <button type="button" onClick={handleLockControlRoom}>
+            Lock control room
+          </button>
+        )}
+      </div>
 
-      {viewMode === 'operator' ? (
+      {globalError && <p className="error global-error">{globalError}</p>}
+
+      {authState === 'unlocked' ? (
         <>
           <section className="card">
             <div className="card-header">
@@ -757,70 +776,26 @@ function App() {
           </section>
         </>
       ) : (
-        <section className="card attendee-card">
-          <div className="card-header">
-            <div>
-              <h2>Get your token</h2>
-              <p>Enter your ticket code to retrieve your Cashu bundles and copy them into your wallet.</p>
+        <div className="auth-overlay" aria-live="polite">
+          {authState === 'checking' ? (
+            <div className="auth-card">
+              <p>Checking access…</p>
             </div>
-          </div>
-
-          <form className="attendee-form" onSubmit={handleAttendeeClaim}>
-            <label>
-              Ticket code
-              <input
-                value={attendeeCode}
-                onChange={(event) => setAttendeeCode(event.target.value)}
-                placeholder="e.g. AADJA-62BC3-1234"
-              />
-            </label>
-            <button type="submit" className="primary" disabled={attendeeBusy}>
-              {attendeeBusy ? 'Checking…' : 'Show my tokens'}
-            </button>
-          </form>
-
-          {attendeeError && <p className="error">{attendeeError}</p>}
-
-          {attendeeResult && (
-            <div className="token-list">
-              <div className="token-summary">
-                <div>
-                  <strong>Status</strong>
-                  <span>{attendeeResult.status}</span>
-                </div>
-                <div>
-                  <strong>Ticket</strong>
-                  <span>{attendeeResult.display_code || attendeeResult.ticket_code}</span>
-                </div>
-                <div>
-                  <strong>Total sats</strong>
-                  <span>{attendeeResult.total_amount ?? attendeeTokens.reduce((sum, token) => sum + token.amount, 0)}</span>
-                </div>
-                <div>
-                  <strong>Bundles</strong>
-                  <span>{attendeeTokens.length}</span>
-                </div>
-              </div>
-
-              <div className="tokens-grid">
-                {attendeeTokens.map((token, index) => (
-                  <div className="token-card" key={`${token.token}-${index}`}>
-                    <div className="token-card__header">
-                      <strong>Token #{index + 1}</strong>
-                      <span>{token.amount} sats</span>
-                    </div>
-                    <textarea readOnly value={token.token} />
-                    <button type="button" className="copy-btn" onClick={() => handleCopyToken(token.token)}>
-                      Copy token
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
+          ) : (
+            <form className="auth-card" onSubmit={handleUnlock}>
+              <h2>Enter control room key</h2>
+              <p>Only organizers can access the control room. Share the attendee portal link for everyone else.</p>
+              <label>
+                Control room key
+                <input value={keyInput} onChange={(event) => setKeyInput(event.target.value)} placeholder="••••••" />
+              </label>
+              {keyError && <p className="error">{keyError}</p>}
+              <button type="submit" className="primary" disabled={keyBusy}>
+                {keyBusy ? 'Verifying…' : 'Unlock'}
+              </button>
+            </form>
           )}
-
-          {attendeeCopyMessage && <p className="hint">{attendeeCopyMessage}</p>}
-        </section>
+        </div>
       )}
 
       <footer>

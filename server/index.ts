@@ -1,5 +1,5 @@
 import cors from 'cors';
-import express, { type Request, type Response } from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import multer from 'multer';
 import { promises as fs, existsSync } from 'node:fs';
 import path from 'node:path';
@@ -10,6 +10,26 @@ import { randomUUID } from 'node:crypto';
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+const CONTROL_ROOM_KEY = process.env.CATOFA_CONTROL_ROOM_KEY;
+const CONTROL_ROOM_KEY_HEADER = 'x-control-room-key';
+
+const requireControlRoomKey = (req: Request, res: Response, next: NextFunction) => {
+  if (!CONTROL_ROOM_KEY) {
+    next();
+    return;
+  }
+  if (req.method === 'OPTIONS') {
+    next();
+    return;
+  }
+  const provided = req.header(CONTROL_ROOM_KEY_HEADER);
+  if (!provided || provided !== CONTROL_ROOM_KEY) {
+    res.status(401).json({ message: 'control room key required' });
+    return;
+  }
+  next();
+};
 
 const PORT = Number(process.env.PORT || 4077);
 const DATA_DIR = process.env.CATOFA_DATA_DIR || path.join(process.cwd(), 'runtime');
@@ -84,6 +104,15 @@ const upload = multer({
 
 const ensureParentDir = async (filePath: string) => {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
+};
+
+const fileExists = async (filePath: string) => {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const appendLog = (line: string) => {
@@ -180,6 +209,19 @@ const importTicketsCsv = async (options: {
   }
 };
 
+const forwardTicketClaim = async (ticketCode: string, faucetUrl?: string) => {
+  const baseUrl = (faucetUrl || DEFAULT_FAUCET_URL).replace(/\/$/, '');
+  const response = await fetch(`${baseUrl}/claim`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ticket_code: ticketCode }),
+  });
+  const data = (await response.json()) as Record<string, unknown>;
+  return { ok: response.ok, status: response.status, data };
+};
+
+
+app.use('/api', requireControlRoomKey);
 app.get('/api/config', (_req: Request, res: Response) => {
   res.json({
     ticketsStore: DEFAULT_TICKETS_STORE,
@@ -187,6 +229,7 @@ app.get('/api/config', (_req: Request, res: Response) => {
     faucetUrl: DEFAULT_FAUCET_URL,
     lakesideBin: LAKESIDE_BIN,
     lakesideCwd: LAKESIDE_CWD,
+    controlRoomKeyRequired: Boolean(CONTROL_ROOM_KEY),
   });
 });
 
@@ -456,23 +499,33 @@ app.post('/api/claim', async (req: Request, res: Response) => {
     return;
   }
 
-  const baseUrl = faucetUrl || DEFAULT_FAUCET_URL;
-
   try {
-    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/claim`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ticket_code: ticketCode }),
-    });
-
-    const data = (await response.json()) as Record<string, unknown>;
-
-    if (!response.ok) {
-      res.status(response.status).json({ message: data.message || 'claim failed', data });
+    const result = await forwardTicketClaim(ticketCode, faucetUrl);
+    if (!result.ok) {
+      res.status(result.status).json({ message: (result.data as any)?.message || 'claim failed', data: result.data });
       return;
     }
+    res.json({ ok: true, data: result.data });
+  } catch (error) {
+    res.status(500).json({ ok: false, message: (error as Error).message });
+  }
+});
 
-    res.json({ ok: true, data });
+app.post('/attendee/claim', async (req: Request, res: Response) => {
+  const { ticketCode } = req.body || {};
+
+  if (!ticketCode) {
+    res.status(400).json({ message: 'ticketCode is required' });
+    return;
+  }
+
+  try {
+    const result = await forwardTicketClaim(ticketCode);
+    if (!result.ok) {
+      res.status(result.status).json({ message: (result.data as any)?.message || 'claim failed', data: result.data });
+      return;
+    }
+    res.json({ ok: true, data: result.data });
   } catch (error) {
     res.status(500).json({ ok: false, message: (error as Error).message });
   }
@@ -502,15 +555,20 @@ app.get('/api/status', async (_req: Request, res: Response) => {
 
 const distDir = path.join(process.cwd(), 'dist');
 const indexHtml = path.join(distDir, 'index.html');
+const attendeeHtml = path.join(distDir, 'attendee.html');
+const hasIndex = await fileExists(indexHtml);
+const hasAttendee = await fileExists(attendeeHtml);
 
-try {
-  await fs.access(indexHtml);
+if (hasIndex) {
   app.use(express.static(distDir));
-  app.get('*', (_req, res) => {
+  if (hasAttendee) {
+    app.get(/^\/attendee(?:\/.*)?$/, (_req, res) => {
+      res.sendFile(attendeeHtml);
+    });
+  }
+  app.get(/.*/, (_req, res) => {
     res.sendFile(indexHtml);
   });
-} catch {
-  // ignore in dev mode
 }
 
 app.listen(PORT, () => {

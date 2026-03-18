@@ -45,6 +45,21 @@ When `NODE_ENV=production`, the Express server serves the static files from `dis
 
 Catofa now ships with a multi-stage container image that bundles the Lakeside CLI. The Docker build expects the `lakeside` repo to live beside Catofa (e.g. `/path/to/workspace/{catofa,lakeside}`); adjust the build args if your layout differs.
 
+Quick-start if you just want a working faucet stack (Catofa + Lakeside CLI) on one host:
+
+```bash
+# create a Base64 (URL-safe) control-room key
+key=$(openssl rand -base64 32 | tr '+/' '-_')
+# clone both repos into a shared parent and build
+mkdir faucet && cd faucet
+git clone https://github.com/mindliner/lakeside.git
+git clone https://github.com/mindliner/catofa.git
+cd catofa
+cp .env.example .env
+echo "CATOFA_CONTROL_ROOM_KEY=$key" >> .env
+docker compose up --build -d
+```
+
 1. Copy the sample env file and tweak as needed:
    ```bash
    cp .env.example .env
